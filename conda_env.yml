@@ -20,6 +20,7 @@ dependencies:
   - requests
   - beautifulsoup4
   - scikit-learn
+  - openpyxl
 # R packages.
   - r-base=3.4.1
   - r-dt
