@@ -1,4 +1,4 @@
-name: my_environment
+name: py_env
 channels:
   - conda-forge
   - defaults
@@ -20,3 +20,21 @@ dependencies:
   - requests
   - beautifulsoup4
   - scikit-learn
+# R packages.
+  - r-base=3.4.1
+  - r-dt
+  - r-ggfortify
+  - r-ggplot2
+  - r-gsw
+  - r-httr
+  - r-irkernel
+  - r-lubridate
+  - r-mapdata
+  - r-ncdf4
+  - r-oce
+  - r-rcolorbrewer
+  - r-rerddap
+  - r-reshape2
+  - r-sp
+  - r-xtractomatic
+  - r-xts
