@@ -1,14 +1,22 @@
 name: my_environment
+channels:
+  - conda-forge
+  - defaults
+  - bashtage
+  - delichon
 dependencies:
-  - pandas=0.20.3
-  - pytest=3.2.1
-  - pytest-cov=2.5.1
-  - numpy=1.13.1
-  - nbconvert=5.3.1
-  - nbformat=4.4.0
+  - python
+  - pandas
+  - pytest
+  - pytest-cov
+  - numpy
+  - nbconvert
+  - nbformat
   - pandas_datareader
   - statsmodels
   - scipy
   - arch
   - matplotlib
   - requests
+  - beautifulsoup4
+  - scikit-learn
