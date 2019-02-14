@@ -13,8 +13,8 @@ def read(file_name):
 setup(
     name="example_datascience_project",
     version="0.0.1",
-    author='Statoil ASA',
-    author_email="Name@statoil.com",
+    author='pengye',
+    author_email="pye@equinor.com",
     description="An example data science project",
     long_description=open('README.md').read(),
     packages=['examplepackage'],
