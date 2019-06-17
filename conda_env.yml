@@ -22,6 +22,7 @@ dependencies:
   - scikit-learn
   - openpyxl
   - jupyter
+  - pypyodbc
 # R packages.
   - r-base=3.4.1
   - r-dt
