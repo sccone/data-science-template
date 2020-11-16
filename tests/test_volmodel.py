@@ -10,6 +10,7 @@ import pandas as pd
 import seaborn as sns
 import tensorflow as tf
 import matplotlib.dates as mdates
+import math 
 
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
@@ -28,7 +29,8 @@ df_raw=df_raw[df_raw['Date']>datetime.datetime(2018,1,1)]
 df=df_raw.copy().sort_values(by = 'Date').reset_index()
 df=df.drop(['Date','Open','High','Low','Volume'],axis=1)
 
-# plt.plot(train_df['Vol_rolling'])
+# df['test']=np.sin(df.index)
+# plt.plot(df_raw['Vol_rolling'])
 # plt.show()
 
 column_indices = {name: i for i, name in enumerate(df.columns)}
@@ -103,17 +105,17 @@ def split_window(self, features):
 WindowGenerator.split_window = split_window
 
 # Stack three slices, the length of the total window:
-example_window = tf.stack([np.array(train_df[:w2.total_window_size]),
-                           np.array(train_df[100:100+w2.total_window_size]),
-                           np.array(train_df[200:200+w2.total_window_size])])
+# example_window = tf.stack([np.array(train_df[:w2.total_window_size]),
+#                            np.array(train_df[100:100+w2.total_window_size]),
+#                            np.array(train_df[200:200+w2.total_window_size])])
 
 
-example_inputs, example_labels = w2.split_window(example_window)
+# example_inputs, example_labels = w2.split_window(example_window)
 
-print('All shapes are: (batch, time, features)')
-print(f'Window shape: {example_window.shape}')
-print(f'Inputs shape: {example_inputs.shape}')
-print(f'labels shape: {example_labels.shape}')
+# print('All shapes are: (batch, time, features)')
+# print(f'Window shape: {example_window.shape}')
+# print(f'Inputs shape: {example_inputs.shape}')
+# print(f'labels shape: {example_labels.shape}')
 
 def plot(self, model=None, plot_col='Close', max_subplots=3):
   inputs, labels = self.example
@@ -156,11 +158,13 @@ def make_dataset(self, data):
       targets=None,
       sequence_length=self.total_window_size,
       sequence_stride=1,
-      shuffle=True,
-      batch_size=32,)
+      # shuffle=True,
+      # batch_size=3,
+      )
 
   ds = ds.map(self.split_window)
-
+  # inputs=list(multi_window.test.as_numpy_iterator())[0][0]
+  # labels=list(multi_window.test.as_numpy_iterator())[0][1]
   return ds
 
 WindowGenerator.make_dataset = make_dataset
@@ -193,12 +197,12 @@ WindowGenerator.val = val
 WindowGenerator.test = test
 WindowGenerator.example = example
 
-w2 = WindowGenerator(input_width=6, label_width=1, shift=1,
-                     label_columns=['Close'])
-w2.example = example_inputs, example_labels
-w2.plot()
+# w2 = WindowGenerator(input_width=6, label_width=1, shift=1,
+#                      label_columns=['Close'])
+# w2.example = example_inputs, example_labels
+# w2.plot()
 
-MAX_EPOCHS = 20
+MAX_EPOCHS = 200
 
 def compile_and_fit(model, window, patience=2):
   early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
@@ -214,54 +218,17 @@ def compile_and_fit(model, window, patience=2):
                       callbacks=[early_stopping])
   return history
 
-OUT_STEPS = 24
+OUT_STEPS = 6
 multi_window = WindowGenerator(input_width=24,
                                label_width=OUT_STEPS,
-                               shift=OUT_STEPS)
+                               shift=OUT_STEPS,
+                               label_columns=['Close'])
 
 multi_window.plot()
 multi_window
 
-multi_linear_model = tf.keras.Sequential([
-    # Take the last time-step.
-    # Shape [batch, time, features] => [batch, 1, features]
-    tf.keras.layers.Lambda(lambda x: x[:, -1:, :]),
-    # Shape => [batch, 1, out_steps*features]
-    tf.keras.layers.Dense(OUT_STEPS*num_features,
-                          kernel_initializer=tf.initializers.zeros),
-    # Shape => [batch, out_steps, features]
-    tf.keras.layers.Reshape([OUT_STEPS, num_features])
-])
-
-history = compile_and_fit(multi_linear_model, multi_window)
-
 multi_val_performance = {}
 multi_performance = {}
-
-IPython.display.clear_output()
-multi_val_performance['Linear'] = multi_linear_model.evaluate(multi_window.val)
-multi_performance['Linear'] = multi_linear_model.evaluate(multi_window.test, verbose=0)
-multi_window.plot(multi_linear_model)
-
-multi_dense_model = tf.keras.Sequential([
-    # Take the last time step.
-    # Shape [batch, time, features] => [batch, 1, features]
-    tf.keras.layers.Lambda(lambda x: x[:, -1:, :]),
-    # Shape => [batch, 1, dense_units]
-    tf.keras.layers.Dense(512, activation='relu'),
-    # Shape => [batch, out_steps*features]
-    tf.keras.layers.Dense(OUT_STEPS*num_features,
-                          kernel_initializer=tf.initializers.zeros),
-    # Shape => [batch, out_steps, features]
-    tf.keras.layers.Reshape([OUT_STEPS, num_features])
-])
-
-history = compile_and_fit(multi_dense_model, multi_window)
-
-IPython.display.clear_output()
-multi_val_performance['Dense'] = multi_dense_model.evaluate(multi_window.val)
-multi_performance['Dense'] = multi_dense_model.evaluate(multi_window.test, verbose=0)
-multi_window.plot(multi_dense_model)
 
 CONV_WIDTH = 3
 multi_conv_model = tf.keras.Sequential([
@@ -302,3 +269,17 @@ IPython.display.clear_output()
 multi_val_performance['LSTM'] = multi_lstm_model.evaluate(multi_window.val)
 multi_performance['LSTM'] = multi_lstm_model.evaluate(multi_window.test, verbose=0)
 multi_window.plot(multi_lstm_model)
+
+early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                    patience=2,
+                                                    mode='min')
+
+multi_conv_model.compile(loss=tf.losses.MeanSquaredError(),
+                optimizer=tf.optimizers.Adam(),
+                metrics=[tf.metrics.MeanAbsoluteError()])
+
+multi_conv_model.fit(multi_window.train, epochs=MAX_EPOCHS,
+                      validation_data=multi_window.val,callbacks=[early_stopping])
+
+test2=multi_conv_model(inputs)
+test6=multi_conv_model(list(multi_window.test.as_numpy_iterator())[0][0])
