@@ -47,9 +47,12 @@ values = values.astype('float32')
 scaler = MinMaxScaler(feature_range=(0, 1))
 scaled = scaler.fit_transform(values)
 # frame as supervised learning
-reframed = series_to_supervised(scaled, 1, 1)
+n_hours = 3
+n_features = 8
+# frame as supervised learning
+reframed = series_to_supervised(scaled, n_hours, 1)
 # drop columns we don't want to predict
-reframed.drop(reframed.columns[[9,10,11,12,13,14,15]], axis=1, inplace=True)
+# reframed.drop(reframed.columns[[9,10,11,12,13,14,15]], axis=1, inplace=True)
 print(reframed.head())
  
 # split into train and test sets
@@ -58,11 +61,14 @@ n_train_hours = 365 * 24
 train = values[:n_train_hours, :]
 test = values[n_train_hours:, :]
 # split into input and outputs
-train_X, train_y = train[:, :-1], train[:, -1]
-test_X, test_y = test[:, :-1], test[:, -1]
+# split into input and outputs
+n_obs = n_hours * n_features
+train_X, train_y = train[:, :n_obs], train[:, -n_features]
+test_X, test_y = test[:, :n_obs], test[:, -n_features]
+print(train_X.shape, len(train_X), train_y.shape)
 # reshape input to be 3D [samples, timesteps, features]
-train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
-test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
+train_X = train_X.reshape((train_X.shape[0], n_hours, n_features))
+test_X = test_X.reshape((test_X.shape[0], n_hours, n_features))
 print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
  
 # design network
@@ -80,14 +86,14 @@ pyplot.show()
  
 # make a prediction
 yhat = model.predict(test_X)
-test_X = test_X.reshape((test_X.shape[0], test_X.shape[2]))
+test_X = test_X.reshape((test_X.shape[0], n_hours*n_features))
 # invert scaling for forecast
-inv_yhat = concatenate((yhat, test_X[:, 1:]), axis=1)
+inv_yhat = concatenate((yhat, test_X[:, -7:]), axis=1)
 inv_yhat = scaler.inverse_transform(inv_yhat)
 inv_yhat = inv_yhat[:,0]
 # invert scaling for actual
 test_y = test_y.reshape((len(test_y), 1))
-inv_y = concatenate((test_y, test_X[:, 1:]), axis=1)
+inv_y = concatenate((test_y, test_X[:, -7:]), axis=1)
 inv_y = scaler.inverse_transform(inv_y)
 inv_y = inv_y[:,0]
 # calculate RMSE
