@@ -16,25 +16,36 @@ from numpy import concatenate
 import numpy as np
 import pandas as pd
 import math
+from scipy.ndimage.interpolation import shift
 
 # date-time parsing function for loading the dataset
 def parser(x):
 	return datetime.strptime('190'+x, '%Y-%m')
 
 # convert time series into supervised learning problem
-def series_to_supervised(data, n_in=1, n_out=1, label_col='index',dropnan=True):
+def series_to_supervised(data, n_in=1, n_out=1, label_col='index',dropnan=True, include_self=True):
     """data: raw datafram
         n_in: number of previous time step used for modeling, lagging
         n_out: number of forecast time step, sequence
         label_col: the target column
+        include_self: check if itself is included as part of X
     """
     n_vars = 1 if type(data) is list else data.shape[1]
     df = DataFrame(data)
+    df_noself=df.copy()
+    df_noself=df_noself.drop([label_col],axis=1)
+    n_vars_noself = 1 if type(df_noself) is list else df_noself.shape[1]
     cols, names = list(), list()
     # input sequence (t-n, ... t-1)
-    for i in range(n_in, 0, -1):
-        cols.append(df.shift(i))
-        names += [(df.columns[j]+'(t-%d)' % (i) ) for j in range(n_vars)]
+    if include_self:
+        for i in range(n_in, 0, -1):
+            cols.append(df.shift(i))
+            names += [(df.columns[j]+'(t-%d)' % (i) ) for j in range(n_vars)]
+    else:
+        for i in range(n_in, 0, -1):
+            cols.append(df_noself.shift(i))
+            names += [(df_noself.columns[j]+'(t-%d)' % (i) ) for j in range(n_vars_noself)]
+
     # forecast sequence (t, t+1, ... t+n)
     for i in range(0, n_out):
         cols.append(df[label_col].shift(-i))
@@ -59,12 +70,13 @@ def difference(dataset, interval=1):
 	return Series(diff)
 
 # transform series into train and test sets for supervised learning
-def prepare_data(series, r_test, n_lag, n_seq, label_col):
+def prepare_data(series, r_test, n_lag, n_seq, label_col,include_self=True):
     """series: the raw dataframe
         r_test: percentage of test sample
         n_lag: number of previous time step used for modeling, lagging
         n_seq:number of forecast time step, sequence
         label_col: the target column
+        include_self: check if itself is included as part of X
     """
     # extract raw values
     n_test=math.floor(r_test*series.shape[0])
@@ -74,17 +86,23 @@ def prepare_data(series, r_test, n_lag, n_seq, label_col):
     scaled_values_ndarry=scaler.fit_transform(series)
     scaled_values = DataFrame(scaled_values_ndarry)
     scaled_values.columns=series.columns
+    scaled_values_shape = scaled_values.copy()
+    if not include_self:
+        scaled_values_shape=scaled_values_shape.drop([label_col],axis=1)
+        _input_num=n_lag*scaled_values_shape.shape[1]
     # transform into supervised learning problem X, y
-    supervised = series_to_supervised(scaled_values, n_lag, n_seq, label_col)
+    supervised = series_to_supervised(scaled_values, n_lag, n_seq, label_col,include_self=include_self)
     supervised_values = supervised.values
     # split into train and test sets
     train, test = supervised_values[0:-n_test], supervised_values[-n_test:]
     train_raw, test_raw = scaled_values[0:-n_test], scaled_values[-n_test:]
     train_x,train_y=train[:, :_input_num], train[:, _input_num:]
     test_x, test_y = test[:, :_input_num], test[:, _input_num:]
+    # train_x=train_x.drop([label_col],axis=1)
+    # test_x=test_x.drop([label_col],axis=1)
     # reshape training into [samples, timesteps, features]
-    train_x=train_x.reshape(train_x.shape[0], n_lag, series.shape[1])
-    test_x=test_x.reshape(test_x.shape[0], n_lag, series.shape[1])
+    train_x=train_x.reshape(train_x.shape[0], n_lag, scaled_values_shape.shape[1])
+    test_x=test_x.reshape(test_x.shape[0], n_lag, scaled_values_shape.shape[1])
     return scaler, train_raw, test_raw,train_x,train_y,test_x,test_y
 
 # fit an LSTM network to training data
@@ -150,33 +168,36 @@ def evaluate_forecasts(test, forecasts, n_lag, n_seq):
 		print('t+%d RMSE: %f' % ((i+1), rmse))
 
 # plot the forecasts in the context of the original dataset
-def plot_forecasts(series, forecasts, n_test):
-	# plot the entire dataset in blue
-	pyplot.plot(series.values)
-	# plot the forecasts in red
-	for i in range(len(forecasts)):
-		off_s = len(series) - n_test + i - 1
-		off_e = off_s + len(forecasts[i]) + 1
-		xaxis = [x for x in range(off_s, off_e)]
-		yaxis = [series.values[off_s]] + forecasts[i]
-		pyplot.plot(xaxis, yaxis, color='red')
-	# show the plot
-	pyplot.show()
+def plot_forecasts(series, forecasts, r_test):
+    # plot the entire dataset in blue
+    pyplot.plot(series.values)
+    n_test=math.floor(r_test*series.shape[0])
+    # plot the forecasts in red
+    for i in range(len(forecasts)):
+        off_s = len(series) - n_test + i - 1
+        off_e = off_s + len(forecasts[i]) + 1
+        xaxis = [x for x in range(off_s, off_e)]
+        yaxis = [series.values[off_s]] + forecasts[i]
+        pyplot.plot(xaxis, yaxis, color='red')
+    # show the plot
+    pyplot.show()
 
-def getdata(ticker,rollingdays=30):
+def getdata(ticker,rollingdays=30,delta_days=1):
     """ticker can be 'qqq.us', or 'spy.us'"""
     address = "https://stooq.com/q/d/l/?s=" + ticker + "&i=d"
     df=pd.read_csv(address)
-    df['Delta']=df['Close'].diff()/df['Close']
-    df['Vol_rolling']=df['Delta'].rolling(rollingdays).std()
+    df['Delta']=(df['Close'].shift(-delta_days)-df['Close'])/df['Close']
+    df['Delta_rev']=(df['Close']-df['Close'].shift(delta_days))/df['Close'].shift(delta_days)
+    df['Delta_1day']=(df['Close']-df['Close'].shift(1))/df['Close'].shift(1)
+    df['Vol_rolling']=df['Delta_1day'].rolling(rollingdays).std()
     df['Date']=pd.to_datetime(df['Date'])
     df.index=df['Date']
     return df
 
-df_raw = getdata('qqq.us',30)
+df_raw = getdata('qqq.us',30,10)
 df_raw=df_raw[df_raw['Date']>datetime.datetime(2018,1,1)]
 df=df_raw.copy().sort_index()
-df=df.drop(['Date','Open','High','Low'],axis=1)
+df=df.drop(['Date','Open','High','Low','Delta_1day'],axis=1)
 
 # load dataset
 dataset = read_csv('pollution.csv', header=0, index_col=0)
@@ -187,21 +208,27 @@ dataset['wnd_dir'] = encoder.fit_transform(dataset['wnd_dir'])
 dataset = dataset.astype('float32')
 # configure
 n_lag = 2
-n_seq = 3
+n_seq = 1
 r_test = 0.3
-n_epochs = 1
+n_epochs = 50
 n_batch = 1
 n_neurons = 1
 # prepare data
-scaler, train, test, train_x, train_y, test_x, test_y = prepare_data(df, r_test, n_lag, n_seq,label_col='Delta')
+scaler, train, test, train_x, train_y, test_x, test_y = prepare_data(df, r_test, n_lag, n_seq,label_col='Delta',include_self=True)
 # fit model
 model = fit_lstm(train_x,train_y, n_lag, n_seq, n_batch, n_epochs, n_neurons)
 # make forecasts
 forecast=model.predict(test_x,n_batch)
 # inverse transform forecasts and test
-forecasts = inverse_transform(test, forecast, scaler, label_col='Delta', n_seq=3)
-actual = inverse_transform(test, test_y, scaler, label_col='Delta', n_seq=3)
+forecasts = inverse_transform(test, forecast, scaler, label_col='Delta', n_seq=n_seq)
+actual = inverse_transform(test, test_y, scaler, label_col='Delta', n_seq=n_seq)
 # evaluate forecasts
 evaluate_forecasts(actual, forecasts, n_lag, n_seq)
+evaluate_forecasts(actual, shift(actual,1), n_lag, n_seq)
 # plot forecasts
-plot_forecasts(series, forecasts, n_test=2)
+# plot_forecasts(test['Delta'], forecasts, r_test)
+
+pyplot.plot(actual[:,0])
+pyplot.plot(shift(actual[:,0],1),color='green')
+pyplot.plot(forecasts[:,0], color='red')
+pyplot.show()
