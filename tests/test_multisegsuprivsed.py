@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import math
 from scipy.ndimage.interpolation import shift
+import plotly.graph_objs as go
+import plotly.express as px
 
 # date-time parsing function for loading the dataset
 def parser(x):
@@ -81,6 +83,7 @@ def prepare_data(series, r_test, n_lag, n_seq, label_col,include_self=True):
     # extract raw values
     n_test=math.floor(r_test*series.shape[0])
     _input_num=n_lag*series.shape[1]
+    train_index, test_index = series.index[0:-n_test], series.index[-n_test:]
     # rescale values to -1, 1
     scaler = MinMaxScaler(feature_range=(-1, 1))
     scaled_values_ndarry=scaler.fit_transform(series)
@@ -103,7 +106,7 @@ def prepare_data(series, r_test, n_lag, n_seq, label_col,include_self=True):
     # reshape training into [samples, timesteps, features]
     train_x=train_x.reshape(train_x.shape[0], n_lag, scaled_values_shape.shape[1])
     test_x=test_x.reshape(test_x.shape[0], n_lag, scaled_values_shape.shape[1])
-    return scaler, train_raw, test_raw,train_x,train_y,test_x,test_y
+    return scaler, train_raw, test_raw,train_x,train_y,test_x,test_y,train_index, test_index
 
 # fit an LSTM network to training data
 def fit_lstm(train_x,train_y, n_lag, n_seq, n_batch, nb_epoch, n_neurons):
@@ -168,19 +171,50 @@ def evaluate_forecasts(test, forecasts, n_lag, n_seq):
 		print('t+%d RMSE: %f' % ((i+1), rmse))
 
 # plot the forecasts in the context of the original dataset
-def plot_forecasts(series, forecasts, r_test):
-    # plot the entire dataset in blue
-    pyplot.plot(series.values)
-    n_test=math.floor(r_test*series.shape[0])
-    # plot the forecasts in red
-    for i in range(len(forecasts)):
-        off_s = len(series) - n_test + i - 1
-        off_e = off_s + len(forecasts[i]) + 1
-        xaxis = [x for x in range(off_s, off_e)]
-        yaxis = [series.values[off_s]] + forecasts[i]
-        pyplot.plot(xaxis, yaxis, color='red')
-    # show the plot
-    pyplot.show()
+def plot_forecasts(date, actual, forecast):
+    fig=px.scatter(
+        # x=test_index,
+        # y=actual[:,0],
+        width=750,
+        height=500,
+        # log_y=True
+    ).update_traces(mode='lines')
+    fig.add_trace(
+        go.Scatter(
+        mode='lines',
+        x=date,
+        y=actual[:,0],
+        marker=dict(
+            color="#2CA02C",
+            size=2,
+            ),
+        name="actual"
+        ) 
+    ),
+    fig.add_trace(
+        go.Scatter(
+        mode='lines',
+        x=date,
+        y=shift(actual[:,0],1),
+        marker=dict(
+            color="#00CC96",
+            size=2,
+            ),
+        name="actual shift"
+        ) 
+    ),
+    fig.add_trace(
+        go.Scatter(
+        x=date,
+        y=forecasts[:,0],
+        marker=dict(
+            color="#FF7F0E",
+            size=2,
+            ),
+        name="lstm"
+    ))
+    fig.show()
+    return
 
 def getdata(ticker,rollingdays=30,delta_days=1):
     """ticker can be 'qqq.us', or 'spy.us'"""
@@ -199,13 +233,6 @@ df_raw=df_raw[df_raw['Date']>datetime.datetime(2018,1,1)]
 df=df_raw.copy().sort_index()
 df=df.drop(['Date','Open','High','Low','Delta_1day'],axis=1)
 
-# load dataset
-dataset = read_csv('pollution.csv', header=0, index_col=0)
-# integer encode direction
-encoder = LabelEncoder()
-dataset['wnd_dir'] = encoder.fit_transform(dataset['wnd_dir'])
-# ensure all data is float
-dataset = dataset.astype('float32')
 # configure
 n_lag = 2
 n_seq = 1
@@ -214,7 +241,7 @@ n_epochs = 50
 n_batch = 1
 n_neurons = 1
 # prepare data
-scaler, train, test, train_x, train_y, test_x, test_y = prepare_data(df, r_test, n_lag, n_seq,label_col='Delta',include_self=True)
+scaler, train, test, train_x, train_y, test_x, test_y,train_index,test_index = prepare_data(df, r_test, n_lag, n_seq,label_col='Delta',include_self=True)
 # fit model
 model = fit_lstm(train_x,train_y, n_lag, n_seq, n_batch, n_epochs, n_neurons)
 # make forecasts
@@ -225,10 +252,5 @@ actual = inverse_transform(test, test_y, scaler, label_col='Delta', n_seq=n_seq)
 # evaluate forecasts
 evaluate_forecasts(actual, forecasts, n_lag, n_seq)
 evaluate_forecasts(actual, shift(actual,1), n_lag, n_seq)
-# plot forecasts
-# plot_forecasts(test['Delta'], forecasts, r_test)
 
-pyplot.plot(actual[:,0])
-pyplot.plot(shift(actual[:,0],1),color='green')
-pyplot.plot(forecasts[:,0], color='red')
-pyplot.show()
+plot_forecasts(test_index, actual, forecast)
